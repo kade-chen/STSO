@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kade-chen/STSO/optimization/apps"
-	_ "github.com/kade-chen/STSO/optimization/apps/impl"
+	"github.com/kade-chen/STSO/optimization/app"
+	_ "github.com/kade-chen/STSO/optimization/app/impl"
 	"github.com/kade-chen/library/ioc"
 )
 
 var (
 	ctx  = context.Background()
-	impl apps.Service
+	impl app.Service
 )
 
 func TestMain(t *testing.T) {
@@ -23,5 +23,5 @@ func init() {
 	req.ConfigFile.Enabled = true
 	req.ConfigFile.Path = "/Users/kade.chen/go-kade-project/github/STSO/etc/config.toml"
 	ioc.DevelopmentSetup(req)
-	impl = ioc.Controller().Get(apps.AppName).(apps.Service)
+	impl = ioc.Controller().Get(app.AppName).(app.Service)
 }

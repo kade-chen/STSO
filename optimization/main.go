@@ -3,14 +3,14 @@ package main
 import (
 	"context"
 
-	"github.com/kade-chen/STSO/optimization/apps"
-	_ "github.com/kade-chen/STSO/optimization/apps/impl"
+	"github.com/kade-chen/STSO/optimization/app"
+	_ "github.com/kade-chen/STSO/optimization/app/impl"
 	"github.com/kade-chen/library/ioc"
 )
 
 var (
 	ctx  = context.Background()
-	impl apps.Service
+	impl app.Service
 )
 
 func main() {
@@ -22,5 +22,5 @@ func init() {
 	req.ConfigFile.Enabled = true
 	req.ConfigFile.Path = "etc/config.toml"
 	ioc.DevelopmentSetup(req)
-	impl = ioc.Controller().Get(apps.AppName).(apps.Service)
+	impl = ioc.Controller().Get(app.AppName).(app.Service)
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"cloud.google.com/go/pubsub"
-	"github.com/kade-chen/STSO/optimization/apps"
+	"github.com/kade-chen/STSO/optimization/app"
 	"github.com/kade-chen/library/exception"
 	"github.com/kade-chen/library/ioc"
 	logs "github.com/kade-chen/library/ioc/config/log"
@@ -13,7 +13,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-var _ apps.Service = (*service)(nil)
+var _ app.Service = (*service)(nil)
 
 func init() {
 	ioc.Controller().Registry(&service{})
@@ -34,7 +34,7 @@ type service struct {
 }
 
 func (s *service) Init() error {
-	s.log = logs.Sub(apps.AppName)
+	s.log = logs.Sub(app.AppName)
 
 	credFile := s.ServiceAccountDev
 	if s.Env {
@@ -58,5 +58,5 @@ func (s *service) Init() error {
 	return nil
 }
 func (s *service) Name() string {
-	return apps.AppName
+	return app.AppName
 }

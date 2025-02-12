@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/kade-chen/STSO/optimization/app"
 	"github.com/kade-chen/library/exception"
 	"github.com/kade-chen/library/tools/format"
 	"github.com/kade-chen/library/tools/generics"
@@ -20,35 +22,48 @@ func (s *service) Receive(ctx context.Context) error {
 
 		atomic.AddInt32(&receiveCounter, 1)
 
-		var logData AuditLog
+		var logData app.AuditLog
 		err := format.Unmarshal([]byte(msg.Data), &logData)
 		if err != nil {
-			fmt.Println("unmarshal error:", err) // 记录日
+			s.log.Error().Msgf("unmarshal error: %v", err)
 			msg.Nack()
+			s.log.Info().Msg("nack message")
+			return
 		}
 
 		if logData.ProtoPayload.AuthenticationInfo.PrincipalEmail == "kade.chen522@gmail.com" {
-			fmt.Println("ignore kade.chen522@gmail.com")
+			s.log.Info().Msgf("ignore kade.chen522@gmail.com")
 			msg.Ack()
+			s.log.Info().Msg("ack message")
 			return
 		}
 		// fmt.Println(format.ToJSON(logData))
-		s.CreateSpotInstance(ctx, logData.Resource.Labels.ProjectId, logData.Resource.Labels.Zone, strings.Split(logData.ProtoPayload.ResourceName, "/")[(len(strings.Split(logData.ProtoPayload.ResourceName, "/"))-1)])
-		// fmt.Println("a:", logData)
-		// msg.Ack()
-		msg.Ack()
-		fmt.Println("-0---------111-", receiveCounter)
+		err = s.CreateSpotInstance(ctx, logData.Resource.Labels.ProjectId, logData.Resource.Labels.Zone, strings.Split(logData.ProtoPayload.ResourceName, "/")[(len(strings.Split(logData.ProtoPayload.ResourceName, "/"))-1)], msg)
+		if err != nil {
+			msg.Nack()
+			s.log.Info().Msg("nack message")
+			return
+		}
+		s.log.Info().Msgf("receiveCounter: %d", receiveCounter)
 	})
 }
 
-func (s *service) CreateSpotInstance(ctx context.Context, projectID string, zone string, instanceName string) error {
+func (s *service) CreateSpotInstance(ctx context.Context, projectID string, zone string, instanceName string, msg *pubsub.Message) error {
 
 	instance := &compute.Instance{
 		Name:        instanceName,
 		MachineType: fmt.Sprintf("zones/%s/machineTypes/f1-micro", zone),
 		NetworkInterfaces: []*compute.NetworkInterface{
 			{
+				Network:    "projects/kade-poc/global/networks/kade-vpc",
 				Subnetwork: fmt.Sprintf("projects/%s/regions/us-central1/subnetworks/gke", projectID),
+				AccessConfigs: []*compute.AccessConfig{{
+					NetworkTier: "PREMIUM",
+				}},
+			},
+			{
+				Network:    "projects/kade-poc/global/networks/gcp-vpc",
+				Subnetwork: fmt.Sprintf("projects/%s/regions/us-central1/subnetworks/kade-test", projectID),
 				AccessConfigs: []*compute.AccessConfig{{
 					NetworkTier: "PREMIUM",
 				}},
@@ -59,8 +74,9 @@ func (s *service) CreateSpotInstance(ctx context.Context, projectID string, zone
 				Boot:       true,
 				AutoDelete: true,
 				InitializeParams: &compute.AttachedDiskInitializeParams{
-					SourceImage: "projects/debian-cloud/global/images/debian-11-bullseye-v20250123",
-					DiskSizeGb:  10,
+					// SourceImage: "projects/debian-cloud/global/images/debian-11-bullseye-v20250123",
+					SourceImage: "projects/kade-poc/global/images/kade-test",
+					DiskSizeGb:  50,
 					DiskType:    fmt.Sprintf("zones/%s/diskTypes/pd-balanced", zone),
 				},
 			},
@@ -99,49 +115,43 @@ func (s *service) CreateSpotInstance(ctx context.Context, projectID string, zone
 	// 发送创建实例请求
 	operation, err := s.Gce.Instances.Insert(projectID, zone, instance).Context(ctx).Do()
 	if err != nil {
+		s.log.Error().Msgf("Failed to create instance: %v", err)
 		return exception.NewInternalServerError("Failed to create instance, ERROR: %v", err)
 	}
+
+	c, err := s.checkInstanceStatus(ctx, s.Gce, projectID, zone, instanceName, msg)
+	if err != nil {
+		s.log.Error().Msgf("Failed to create instance: %v", err)
+		return err
+	}
+
+	fmt.Println(format.ToJSON(c))
 	// fmt.Printf("%+v", format.ToJSON(operation))
 	fmt.Printf("Instance creation started: %v\n", strings.Split(operation.TargetLink, "/")[(len(strings.Split(operation.TargetLink, "/"))-1)])
 	return nil
 }
 
-type AuditLog struct {
-	ProtoPayload struct {
-		Type               string `json:"@type"`
-		AuthenticationInfo struct {
-			PrincipalEmail string `json:"principalEmail"`
-		} `json:"authenticationInfo"`
-		RequestMetadata struct {
-			CallerIp                string `json:"callerIp"`
-			CallerSuppliedUserAgent string `json:"callerSuppliedUserAgent"`
-		} `json:"requestMetadata"`
-		ServiceName  string `json:"serviceName"`
-		MethodName   string `json:"methodName"`
-		ResourceName string `json:"resourceName"`
-		Request      struct {
-			Type string `json:"@type"`
-		} `json:"request"`
-	} `json:"protoPayload"`
-	InsertId string `json:"insertId"`
-	Resource struct {
-		Type   string `json:"type"`
-		Labels struct {
-			ProjectId  string `json:"project_id"`
-			InstanceId string `json:"instance_id"`
-			Zone       string `json:"zone"`
-		} `json:"labels"`
-	} `json:"resource"`
-	Timestamp string `json:"timestamp"`
-	Severity  string `json:"severity"`
-	Labels    struct {
-		RootTriggerId string `json:"compute.googleapis.com/root_trigger_id"`
-	} `json:"labels"`
-	LogName   string `json:"logName"`
-	Operation struct {
-		Id       string `json:"id"`
-		Producer string `json:"producer"`
-		Last     bool   `json:"last"`
-	} `json:"operation"`
-	ReceiveTimestamp string `json:"receiveTimestamp"`
+func (s *service) checkInstanceStatus(ctx context.Context, computeService *compute.Service, projectID, zone, instanceName string, msg *pubsub.Message) (cc *compute.Instance, err error) {
+	for {
+		// 获取实例信息
+		cc, err = computeService.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
+		if err != nil {
+			s.log.Error().Msgf("Failed to get instance status: %v", err)
+			return nil, exception.NewInternalServerError("Failed to get instance status, ERROR: %v", err) // 直接返回错误，而不是 `log.Fatalf`
+		}
+
+		// 处理不同状态
+		switch cc.Status {
+		case "RUNNING":
+			s.log.Info().Msgf("Instance is running: %v\n", cc.Name)
+			msg.Ack()
+			return cc, nil // 返回实例信息
+		case "STOPPING":
+			time.Sleep(8 * time.Second)
+			return nil, exception.NewInternalServerError("Instance creation failed: %v\n", cc.Status)
+		default:
+			// s.log.Debug().Msgf("Instance not ready yet, status: %v\n", cc.Status)
+			continue
+		}
+	}
 }
