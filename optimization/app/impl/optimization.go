@@ -13,6 +13,7 @@ import (
 	"github.com/kade-chen/library/tools/format"
 	"github.com/kade-chen/library/tools/generics"
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 )
 
 var receiveCounter int32
@@ -49,25 +50,31 @@ func (s *service) Receive(ctx context.Context) error {
 }
 
 func (s *service) CreateSpotInstance(ctx context.Context, projectID string, zone string, instanceName string, msg *pubsub.Message) error {
-
+	zone = "northamerica-south1-b"
 	instance := &compute.Instance{
 		Name:        instanceName,
 		MachineType: fmt.Sprintf("zones/%s/machineTypes/f1-micro", zone),
 		NetworkInterfaces: []*compute.NetworkInterface{
 			{
-				Network:    "projects/kade-poc/global/networks/kade-vpc",
-				Subnetwork: fmt.Sprintf("projects/%s/regions/us-central1/subnetworks/gke", projectID),
+				Subnetwork: fmt.Sprintf("projects/%s/regions/northamerica-south1/subnetworks/cc", projectID),
 				AccessConfigs: []*compute.AccessConfig{{
 					NetworkTier: "PREMIUM",
 				}},
 			},
-			{
-				Network:    "projects/kade-poc/global/networks/gcp-vpc",
-				Subnetwork: fmt.Sprintf("projects/%s/regions/us-central1/subnetworks/kade-test", projectID),
-				AccessConfigs: []*compute.AccessConfig{{
-					NetworkTier: "PREMIUM",
-				}},
-			},
+			// {
+			// 	Network:    "projects/kade-poc/global/networks/kade-vpc",
+			// 	Subnetwork: fmt.Sprintf("projects/%s/regions/us-central1/subnetworks/gke", projectID),
+			// 	AccessConfigs: []*compute.AccessConfig{{
+			// 		NetworkTier: "PREMIUM",
+			// 	}},
+			// },
+			// {
+			// 	Network:    "projects/kade-poc/global/networks/gcp-vpc",
+			// 	Subnetwork: fmt.Sprintf("projects/%s/regions/us-central1/subnetworks/kade-test01", projectID),
+			// 	AccessConfigs: []*compute.AccessConfig{{
+			// 		NetworkTier: "PREMIUM",
+			// 	}},
+			// },
 		},
 		Disks: []*compute.AttachedDisk{
 			{
@@ -115,6 +122,16 @@ func (s *service) CreateSpotInstance(ctx context.Context, projectID string, zone
 	// 发送创建实例请求
 	operation, err := s.Gce.Instances.Insert(projectID, zone, instance).Context(ctx).Do()
 	if err != nil {
+		if apiErr, ok := err.(*googleapi.Error); ok {
+			fmt.Printf("API Error Code: %d\n", apiErr.Code)
+			fmt.Printf("API Error Message: %s\n", apiErr.Message)
+			// 检查错误代码和消息
+			if apiErr.Code == 400 || apiErr.Code == 403 {
+				if strings.Contains(apiErr.Message, "ZONE_RESOURCE_POOL_EXHAUSTED") {
+					fmt.Println("Spot instances unavailable in this zone.")
+				}
+			}
+		}
 		s.log.Error().Msgf("Failed to create instance: %v", err)
 		return exception.NewInternalServerError("Failed to create instance, ERROR: %v", err)
 	}
