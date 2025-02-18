@@ -21,7 +21,7 @@ func TestMain(t *testing.T) {
 func init() {
 	req := ioc.NewLoadConfigRequest()
 	req.ConfigFile.Enabled = true
-	req.ConfigFile.Path = "/Users/kade.chen/go-kade-project/github/STSO/etc/config.toml"
+	req.ConfigFile.Path = "/Users/kade.chen/go-kade-project/github/STSO/optimization/etc/config.toml"
 	ioc.DevelopmentSetup(req)
 	impl = ioc.Controller().Get(app.AppName).(app.Service)
 }
