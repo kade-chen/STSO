@@ -4,7 +4,7 @@ go 1.23.6
 
 require (
 	cloud.google.com/go/pubsub v1.47.0
-	github.com/kade-chen/library v1.1.2
+	github.com/kade-chen/library v1.1.3
 	github.com/rs/zerolog v1.33.0
 	google.golang.org/api v0.220.0
 )

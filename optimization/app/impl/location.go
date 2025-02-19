@@ -2,9 +2,9 @@ package impl
 
 import (
 	"errors"
-	"math/rand"
 	"strings"
-	"time"
+
+	shufflealgorithm "github.com/kade-chen/library/tools/algorithm/shuffleAlgorithm"
 )
 
 // 创建 map 类型存储 region 和对应的 zone 列表
@@ -40,19 +40,9 @@ var RegionZoneMap = map[string][]string{
 	// "northamerica-south1":     {"northamerica-south1-a", "northamerica-south1-b", "northamerica-south1-c"},
 }
 
-// Fisher-Yates 洗牌算法，用于随机打乱数组
-func shuffleAlgorithm(arr []string) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano())) // 创建局部随机数生成器
-	n := len(arr)
-	for i := n - 1; i > 0; i-- {
-		j := r.Intn(i + 1) // 在 [0, i] 之间选一个随机索引
-		arr[i], arr[j] = arr[j], arr[i]
-	}
-}
-
 func (s *service) getAvabileZone(zone string) ([]string, error) {
 	region := strings.Join(strings.Split(zone, "-")[:len(strings.Split(zone, "-"))-1], "-")
-	shuffleAlgorithm(RegionZoneMap[region]) // 打乱数组顺序
+	shufflealgorithm.ShuffleAlgorithm(RegionZoneMap[region]) // 打乱数组顺序
 
 	zones, exists := RegionZoneMap[region]
 	if !exists || len(zones) == 0 {
